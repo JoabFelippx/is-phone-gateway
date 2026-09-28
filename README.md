@@ -18,14 +18,7 @@ source .venv/bin/activate
 python -m pip install -e '.[dev]'
 ```
 
-Se você tiver as cópias locais das bibliotecas na pasta `base_de_conhecimento`, também poderá instalá-las diretamente. Essa pasta de referências não faz parte do repositório do gateway:
-
-```bash
-python -m pip install ./base_de_conhecimento/is-msgs-sea ./base_de_conhecimento/is-wire-sea
-python -m pip install -e '.[dev]'
-```
-
-As dependências `is-msgs-sea` e `is-wire-sea` mantêm os imports `is_msgs` e `is_wire`. O gateway usa os schemas da versão 1.3.1 e a API de publicação da versão 2.0.2 presentes na base de conhecimento.
+As dependências `is-msgs-sea` e `is-wire-sea` são instaladas automaticamente e mantêm os imports `is_msgs` e `is_wire`. O gateway requer `is-msgs-sea` a partir da versão 1.3.1 e `is-wire-sea` a partir da versão 2.0.2.
 
 ## HTTPS na rede local
 
