@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+certs/
+.env
+.env.*
+!.env.example
+/base_de_conhecimento/

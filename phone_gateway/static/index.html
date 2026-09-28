@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10231f">
+  <title>Phone Gateway · LabSEA</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='16' y='4' width='32' height='56' rx='8' fill='%232dc5a0'/%3E%3Ccircle cx='32' cy='50' r='3' fill='%2310231f'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Phone Gateway início"><span class="brand-icon">◉</span> phone<span>gateway</span></a>
+    <span class="lab">LabSEA <span class="version">/ 01</span></span>
+  </header>
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">SEU CELULAR, CONECTADO AO LABORATÓRIO</p>
+        <h1>Do sensor<br>ao seu <span>broker.</span></h1>
+        <p class="intro-copy">Transforme seu celular em uma fonte de dados. Escolha os sensores, defina os tópicos e acompanhe cada publicação.</p>
+      </div>
+      <div class="session-panel">
+        <div class="status-line"><span id="connection-dot" class="dot"></span><span id="connection-state" role="status">Aguardando configuração</span></div>
+        <div class="session-number"><strong id="total-count">0</strong><span>mensagens publicadas</span></div>
+        <div class="session-bottom"><span id="elapsed">00:00</span><span>SESSÃO ATUAL</span></div>
+      </div>
+    </section>
+    <div id="notice" class="notice" role="alert" hidden></div>
+    <form id="gateway-form">
+      <section class="connection-section">
+        <div class="section-heading"><div><span class="step">01</span><h2>Conexão</h2></div><span class="hint">Celular e gateway na mesma rede</span></div>
+        <div class="connection-grid">
+          <label class="broker-field">Endereço do broker<input id="broker" type="text" placeholder="amqp://usuario:senha@192.168.1.10:5672" autocomplete="off" spellcheck="false"><small id="broker-help">RabbitMQ · AMQP ou AMQPS. A senha não é salva neste navegador.</small></label>
+          <label>Exchange<input id="exchange" value="is" required maxlength="128" pattern="[A-Za-z0-9_.-]+" spellcheck="false"></label>
+          <label>Nome do celular<input id="device-id" value="phone" required maxlength="64" pattern="[A-Za-z0-9_-]+" spellcheck="false"></label>
+          <label id="token-field" hidden>Token de acesso<input id="token" type="password" autocomplete="off"></label>
+        </div>
+      </section>
+      <section class="sensors-section">
+        <div class="section-heading"><div><span class="step">02</span><h2>Seus sensores</h2></div><span class="hint" id="sensor-selection">Selecione o que deseja transmitir</span></div>
+        <div id="sensors" class="sensor-grid"></div>
+      </section>
+      <section class="publish-bar">
+        <div><strong>Pronto para transmitir?</strong><p>Permita o acesso aos sensores e mantenha esta página aberta.</p></div>
+        <div class="actions"><button id="stop" type="button" class="secondary" disabled>Parar</button><button id="start" type="submit" disabled><span class="play">▶</span> Iniciar publicação</button></div>
+      </section>
+    </form>
+    <section class="monitor-section">
+      <div class="section-heading"><div><span class="step">03</span><h2>Atividade</h2></div><button id="clear-log" type="button" class="text-button">Limpar registro</button></div>
+      <div id="log" class="event-log" role="log" aria-live="polite"><p class="log-empty">As conexões e leituras aparecerão aqui.</p></div>
+    </section>
+    <footer><span>PHONE GATEWAY / LABSEA</span><span>Coleta somente durante a sessão ativa.</span></footer>
+  </main>
+  <template id="sensor-template">
+    <article class="sensor-card">
+      <div class="sensor-header"><span class="sensor-icon" aria-hidden="true"></span><label class="toggle"><input class="enabled" type="checkbox"><span class="toggle-track"></span></label></div>
+      <div class="sensor-title"><h3></h3><span class="unit"></span></div>
+      <p class="sensor-description"></p>
+      <div class="preview" hidden><video muted playsinline autoplay></video><span class="preview-caption">Prévia da câmera</span></div>
+      <label class="topic-label">Tópico de publicação<input class="topic" type="text" required maxlength="255" pattern="[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*" spellcheck="false"></label>
+      <div class="sensor-options"><label><span class="rate-label">Frequência (Hz)</span><input class="rate" type="number" min="0.05" step="0.05" required></label></div>
+      <div class="sensor-reading"><span class="sensor-state">Aguardando</span><span class="sensor-count">0 msgs</span></div>
+      <output class="sensor-value">—</output>
+    </article>
+  </template>
+</body>
+</html>
