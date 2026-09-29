@@ -134,6 +134,8 @@ def main():
                 "localStorage.getItem('phone-gateway-settings-v1')"
             )
             assert page.locator("#broker").is_disabled()
+            page.locator("#calibration-open").click()
+            assert "Pare a publicação" in page.locator("#calibration-status").text_content()
             page.screenshot(path="/tmp/phone-gateway-desktop.png", full_page=True)
             page.locator("#stop").click()
             assert page.locator("#start").is_enabled()
@@ -143,6 +145,13 @@ def main():
                 "document.querySelectorAll('.sensor-count')[0].textContent !== '0 msgs'"
             )
             page.locator("#stop").click()
+            page.evaluate("""void (navigator.mediaDevices.getUserMedia = async () => {
+                throw new DOMException('Denied for test', 'NotAllowedError');
+            });""")
+            page.locator("#calibration-open").click()
+            page.wait_for_function(
+                "document.querySelector('#calibration-status').textContent.includes('Permissão')"
+            )
             page.evaluate("""navigator.mediaDevices.getUserMedia = async () => {
                 const response = await fetch('/api/calibration/board');
                 const bitmap = await createImageBitmap(await response.blob());

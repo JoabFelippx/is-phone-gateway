@@ -414,11 +414,30 @@ function cameraOptions(card, saved) {
 function calibrationStatus(message) {
   $("#calibration-status").textContent = message;
 }
+function cameraAccessError(error) {
+  switch (error?.name) {
+    case "NotAllowedError":
+    case "PermissionDeniedError":
+      return "Permissão da câmera negada. Libere a câmera nas configurações do navegador e tente novamente.";
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+      return "Nenhuma câmera disponível foi encontrada neste aparelho.";
+    case "NotReadableError":
+    case "TrackStartError":
+      return "A câmera está ocupada por outro aplicativo ou não pôde ser iniciada. Feche outros aplicativos que usam a câmera.";
+    case "OverconstrainedError":
+      return "Esta câmera não oferece a resolução selecionada. Escolha uma resolução menor e tente novamente.";
+    case "SecurityError":
+      return "O navegador bloqueou a câmera. Confira a permissão e o certificado HTTPS.";
+    default:
+      return "Não foi possível abrir a câmera. Confira a permissão, o HTTPS e tente uma resolução menor.";
+  }
+}
 function updateCalibrationControls() {
   const idle = state.phase === "idle";
   const open = !!state.calibrationStream;
   const busy = state.calibrationBusy || state.calibrationOpening;
-  $("#calibration-open").disabled = !idle || open || busy;
+  $("#calibration-open").disabled = open || busy;
   $("#calibration-stop").disabled = !idle || (!open && !state.calibrationOpening);
   $("#calibration-capture").disabled = !idle || !open || busy ||
     state.calibrationPhotos.length >= 5;
@@ -483,14 +502,25 @@ async function calibrationRequest(url, options = {}) {
   return response;
 }
 async function openCalibration() {
-  if (state.phase !== "idle" || state.calibrationStream || state.calibrationOpening) return;
-  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-    calibrationStatus("Abra o gateway por HTTPS para usar a câmera."); return;
+  if (state.calibrationStream || state.calibrationOpening) return;
+  if (state.phase !== "idle") {
+    calibrationStatus("Pare a publicação antes de abrir a câmera para calibração."); return;
+  }
+  if (!window.isSecureContext) {
+    calibrationStatus("A câmera exige HTTPS. Abra o endereço https:// do gateway no celular."); return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    calibrationStatus("Este navegador não disponibiliza a câmera. Confira a permissão e o certificado HTTPS."); return;
   }
   state.calibrationOpening = true;
   const generation = ++state.calibrationGeneration;
   updateCalibrationControls();
   calibrationStatus("Solicitando acesso à câmera…");
+  const promptTimer = setTimeout(() => {
+    if (generation === state.calibrationGeneration && state.calibrationOpening) {
+      calibrationStatus("Aguardando a câmera. Confira se há um pedido de permissão do navegador; toque em Fechar câmera para cancelar.");
+    }
+  }, 10000);
   try {
     const requested = resolution($("#calibration-resolution").value);
     const stream = await navigator.mediaDevices.getUserMedia(
@@ -516,12 +546,13 @@ async function openCalibration() {
         calibrationStatus("A câmera foi desconectada.");
       }
     });
-  } catch {
+  } catch (error) {
     if (generation === state.calibrationGeneration) {
       closeCalibration();
-      calibrationStatus("Não foi possível abrir a câmera nesta resolução.");
+      calibrationStatus(cameraAccessError(error));
     }
   } finally {
+    clearTimeout(promptTimer);
     if (generation === state.calibrationGeneration) {
       state.calibrationOpening = false;
       updateCalibrationControls();
@@ -658,7 +689,10 @@ async function init() {
       select.addEventListener("change", () => {clearCalibrationPhotos(); persistSettings();});
     }
     updateCalibrationControls();
-    if (!window.isSecureContext) notice("Este endereço usa HTTP. Para acessar os sensores pelo celular, abra a versão HTTPS do gateway.");
+    if (!window.isSecureContext) {
+      notice("Este endereço usa HTTP. Para acessar os sensores pelo celular, abra a versão HTTPS do gateway.");
+      calibrationStatus("A câmera exige HTTPS. Abra o endereço https:// do gateway no celular.");
+    }
   } catch {notice("Não foi possível carregar o gateway. Recarregue a página e confira o servidor.");}
 }
 $("#clear-log").addEventListener("click", () => {$("#log").replaceChildren();});
