@@ -43,8 +43,8 @@ phone-gateway --cert certs/gateway.pem --key certs/gateway-key.pem
 
 No celular, na mesma rede, abra `https://192.168.1.20:8443`. Libere a porta TCP 8443 no computador se houver firewall. O broker deve ser acessível pelo computador do gateway; não precisa habilitar plugins WebSocket do RabbitMQ.
 
-1. Informe uma URI como `amqp://usuario:senha@192.168.1.10:5672`, o exchange (padrão `is`) e o nome do celular.
-2. Ative os sensores desejados. Escolha um tópico distinto e uma frequência para cada um. Na câmera, a taxa é exibida em FPS e aceita até 30 FPS; escolha também frontal/traseira, largura máxima e qualidade JPEG.
+1. O broker vem preenchido com `amqp://guest:guest@10.10.50.176:30000`; altere a URI se necessário. Informe o exchange (padrão `is`) e o nome do celular.
+2. Ative os sensores desejados. Escolha um tópico distinto e uma frequência para cada um. Na câmera, a taxa é exibida em FPS e aceita até 30 FPS; escolha também frontal/traseira, resolução máxima da publicação e qualidade JPEG.
 3. Toque em **Iniciar publicação** e conceda as permissões. A prévia e os contadores mostram a atividade real.
 4. Toque em **Parar** para fechar a câmera, remover os listeners e encerrar as conexões. Ao sair da página ou colocá-la em segundo plano, a sessão também para.
 
@@ -53,14 +53,26 @@ O tópico de câmera padrão é `cameraphonegateway.frame`, e pode ser alterado 
 Para configurar as credenciais no servidor em vez de digitá-las no celular:
 
 ```bash
-export BROKER_URI='amqp://usuario:senha@192.168.1.10:5672'
+export BROKER_URI='amqp://guest:guest@10.10.50.176:30000'
 export GATEWAY_TOKEN='um-token-para-o-laboratorio'
 phone-gateway --cert certs/gateway.pem --key certs/gateway-key.pem
 ```
 
-Com `BROKER_URI`, o campo do broker pode ficar vazio. Com `GATEWAY_TOKEN`, a interface exige esse token antes de conectar. As credenciais do servidor não são enviadas pela API de configuração. A página salva tópicos, frequências e opções no navegador; não salva URI do broker nem token. Não há carregamento de scripts ou fontes de terceiros.
+Sem `BROKER_URI`, o servidor usa `amqp://guest:guest@10.10.50.176:30000` como padrão. Com `BROKER_URI`, o campo do broker pode ficar vazio e o servidor usa a URI do ambiente. Com `GATEWAY_TOKEN`, a interface exige esse token antes de conectar. As credenciais configuradas no ambiente não são enviadas pela API de configuração. A página salva tópicos, frequências e opções no navegador; não salva URI do broker nem token. Não há carregamento de scripts ou fontes de terceiros.
 
-O RabbitMQ normalmente restringe o usuário `guest` ao próprio host. Para um broker remoto, use um usuário autorizado no vhost e no exchange. Caracteres especiais no usuário/senha precisam de URL encoding. `amqps://` usa TLS com verificação de certificado pelo servidor Python.
+O RabbitMQ normalmente restringe o usuário `guest` ao próprio host. O broker em `10.10.50.176` precisa permitir explicitamente acesso remoto de `guest`; se não permitir, use um usuário autorizado no vhost e no exchange. Caracteres especiais no usuário/senha precisam de URL encoding. `amqps://` usa TLS com verificação de certificado pelo servidor Python.
+
+## Calibrar a câmera
+
+A calibração funciona sem iniciar a publicação no broker. Na seção **Calibração da câmera**, selecione a câmera frontal ou traseira, escolha a resolução máxima das fotos e toque em **Abrir câmera**. A página mostra a resolução que o aparelho realmente entregou. Posicione o tabuleiro em diferentes inclinações e distâncias; toque em **Capturar foto** de 3 a 5 vezes. Cada foto é aceita somente quando o servidor detecta pelo menos oito cantos ChArUco. É possível remover uma foto ruim e capturar outra.
+
+O tabuleiro usa padrão **legacy**, 8 × 6 quadrados, lado do quadrado de 0,095 m, lado do marcador de 0,071 m e dicionário `DICT_4X4_100`. O link **Baixar tabuleiro** fornece o padrão gerado pelo próprio gateway. Ao imprimi-lo, confira que suas dimensões físicas sejam 760 × 570 mm; imprimir com ajuste automático à página muda o tamanho dos quadrados.
+
+Ao tocar em **Calibrar e salvar NPZ**, o Python calcula os intrínsecos e salva `calibrations/<nome-do-celular>.npz` no computador do gateway. O arquivo contém `K`, `dist`, `nK`, `roi`, `w`, `h`, erro RMS, número de fotos e os parâmetros do tabuleiro. Também pode ser baixado no celular. O diretório `calibrations/` não é enviado ao Git. Um arquivo existente só é substituído quando a opção correspondente está marcada.
+
+Por padrão, o arquivo também inclui `rt` (3 × 4), como os NPZ do pipeline de poses de referência. Esse `rt` descreve a pose da câmera **em relação ao tabuleiro visto na primeira foto válida**; só serve como extrínseco entre várias câmeras se o mesmo tabuleiro permanecer fixo no mesmo referencial durante suas calibrações. É possível desmarcar `rt` e salvar somente os parâmetros intrínsecos. Um `rt` obtido com tabuleiros movidos não representa um referencial comum entre câmeras.
+
+Na seção da câmera de publicação, a resolução é configurada separadamente. **Automática (sem corte)** usa os pixels entregues pelo aparelho, respeitando o teto de 1920 × 1080 do gateway. As outras opções limitam largura e altura mantendo a proporção completa do quadro; a interface mostra a resolução de origem e a publicada. O gateway solicita ao navegador `resizeMode: none` para evitar recorte digital, mas a disponibilidade e o campo de visão final dependem do navegador, da lente e do dispositivo. [Restrições de captura do navegador](https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackConstraints). Os intrínsecos salvos correspondem à lente e à resolução **real das fotos de calibração**. Para análise geométrica, use essa mesma lente e resolução na publicação ou transforme `K` para um redimensionamento uniforme que preserve o campo de visão.
 
 ## Mensagens e unidades
 
@@ -92,7 +104,7 @@ Os contadores indicam chamadas de publicação concluídas, **não confirmação
 Exemplo com a câmera:
 
 ```bash
-export BROKER_URI='amqp://usuario:senha@192.168.1.10:5672'
+export BROKER_URI='amqp://guest:guest@10.10.50.176:30000'
 python examples/consume.py --sensor camera --topic cameraphonegateway.frame
 ```
 

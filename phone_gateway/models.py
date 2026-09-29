@@ -3,6 +3,8 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+DEFAULT_BROKER_URI = "amqp://guest:guest@10.10.50.176:30000"
+
 SENSORS = {
     "camera": {
         "label": "Câmera",

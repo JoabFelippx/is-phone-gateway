@@ -11,7 +11,9 @@ import subprocess
 import sys
 import time
 import urllib.request
+from io import BytesIO
 
+from PIL import Image as PillowImage
 from playwright.sync_api import sync_playwright
 
 
@@ -65,11 +67,14 @@ def main():
                 """)
             packets = []
             counts = {}
+            camera_sizes = []
 
             def intercept(ws):
                 def receive(payload):
                     if isinstance(payload, bytes):
                         assert payload[8:10] == b"\xff\xd8"
+                        with PillowImage.open(BytesIO(payload[8:])) as image:
+                            camera_sizes.append(image.size)
                         sensor = "camera"
                     else:
                         packet = json.loads(payload)
@@ -97,6 +102,7 @@ def main():
             page.route_web_socket("**/ws", intercept)
             page.goto(address)
             page.wait_for_function("document.querySelectorAll('.sensor-card').length === 6")
+            assert page.locator("#broker").input_value() == "amqp://guest:guest@10.10.50.176:30000"
             page.locator("#broker").fill("amqp://test:do-not-save@broker:5672")
             page.locator(".sensor-card").first.locator(".rate").fill("30")
             page.locator(".enabled").evaluate_all(
@@ -137,6 +143,33 @@ def main():
                 "document.querySelectorAll('.sensor-count')[0].textContent !== '0 msgs'"
             )
             page.locator("#stop").click()
+            page.evaluate("""navigator.mediaDevices.getUserMedia = async () => {
+                const response = await fetch('/api/calibration/board');
+                const bitmap = await createImageBitmap(await response.blob());
+                const canvas = document.createElement('canvas');
+                canvas.width = 1280; canvas.height = 960;
+                const ctx = canvas.getContext('2d');
+                const draw = () => ctx.drawImage(bitmap, 0, 0, 1280, 960);
+                draw(); setInterval(draw, 100);
+                return canvas.captureStream(30);
+            };""")
+            page.locator("#camera-publish-resolution").select_option("1280x720")
+            page.locator("#start").click()
+            page.wait_for_function(
+                "document.querySelectorAll('.sensor-count')[0].textContent !== '0 msgs'"
+            )
+            page.locator("#stop").click()
+            assert (960, 720) in camera_sizes, camera_sizes
+            page.locator("#calibration-resolution").select_option("1280x960")
+            page.locator("#calibration-open").click()
+            page.wait_for_function("document.querySelector('#calibration-video').videoWidth > 0")
+            page.locator("#calibration-capture").click()
+            page.wait_for_function(
+                "document.querySelector('#calibration-count').textContent === '1/5 fotos válidas'"
+            )
+            assert "1280 × 960" in page.locator("#calibration-source").text_content()
+            page.screenshot(path="/tmp/phone-gateway-desktop.png", full_page=True)
+            page.locator("#calibration-stop").click()
             assert not errors, errors
             mobile = browser.new_context(
                 viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True
@@ -149,7 +182,7 @@ def main():
             browser.close()
             print(
                 "Interface OK: desktop, celular, câmera, cinco sensores, "
-                "início/parada e credenciais."
+                "calibração ChArUco, preservação do quadro, início/parada e credenciais."
             )
             print("Capturas: /tmp/phone-gateway-desktop.png e /tmp/phone-gateway-mobile.png")
     finally:

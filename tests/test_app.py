@@ -8,6 +8,7 @@ from is_wire.core import Message
 from starlette.websockets import WebSocketDisconnect
 
 from phone_gateway.app import create_app
+from phone_gateway.models import DEFAULT_BROKER_URI
 from tests.test_converters import jpeg
 
 ORIGIN = {"origin": "http://testserver"}
@@ -73,6 +74,16 @@ def test_interface_and_info_do_not_expose_credentials(gateway, monkeypatch):
     info = client.get("/api/info")
     assert info.json()["broker_configured"] is True
     assert "secret" not in info.text
+
+
+def test_default_broker_is_used_when_no_uri_or_environment_is_set(gateway):
+    client, instances = gateway
+    info = client.get("/api/info").json()
+    assert info["default_broker_uri"] == DEFAULT_BROKER_URI
+    assert info["broker_configured"] is False
+    with client.websocket_connect("/ws", headers=ORIGIN) as ws:
+        assert configure(ws, broker_uri="")["type"] == "ready"
+    assert all(instance.uri == DEFAULT_BROKER_URI for instance in instances)
 
 
 def test_websocket_routes_real_protobuf_and_closes_channels(gateway):

@@ -11,3 +11,4 @@ certs/
 .env.*
 !.env.example
 /base_de_conhecimento/
+/calibrations/

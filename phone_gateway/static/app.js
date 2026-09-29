@@ -11,7 +11,9 @@ const descriptions = {
 const state = {phase: "idle", generation: 0, socket: null, cards: {}, catalog: {},
   pending: new Set(), lastSent: {}, counts: {}, total: 0, startedAt: 0,
   stream: null, cameraTimer: null, cameraBusy: false, watchId: null, battery: null,
-  batteryHandler: null, wakeLock: null, noDataTimer: null, config: null};
+  batteryHandler: null, wakeLock: null, noDataTimer: null, config: null,
+  calibrationStream: null, calibrationPhotos: [], calibrationBusy: false,
+  calibrationOpening: false, calibrationGeneration: 0, calibrationDownload: null};
 const STORAGE_KEY = "phone-gateway-settings-v1";
 
 function log(message, kind = "") {
@@ -47,8 +49,11 @@ function persistSettings() {
   // Credenciais AMQP e token não são persistidos.
   try {localStorage.setItem(STORAGE_KEY, JSON.stringify({sensors,
     exchange: $("#exchange").value, device_id: $("#device-id").value,
-    camera: {facing: $("#camera-facing").value, width: $("#camera-width").value,
-      quality: $("#camera-quality").value}}));} catch { /* Storage pode estar desabilitado. */ }
+    camera: {facing: $("#camera-facing").value,
+      publish_resolution: $("#camera-publish-resolution").value,
+      quality: $("#camera-quality").value},
+    calibration: {facing: $("#calibration-facing").value,
+      resolution: $("#calibration-resolution").value}}));} catch { /* Storage pode estar desabilitado. */ }
 }
 function updateSelection() {
   let active = 0;
@@ -70,6 +75,28 @@ function phase(value, label) {
   $("#stop").disabled = value === "idle";
   $("#gateway-form").querySelectorAll("input,select").forEach((input) => {input.disabled = value !== "idle";});
   updateSelection();
+  updateCalibrationControls();
+}
+function resolution(value) {
+  if (value === "source") return null;
+  const [width, height] = value.split("x").map(Number);
+  return {width, height};
+}
+function fitSize(width, height, maximum) {
+  // Escala o quadro inteiro, sem crop e sem alterar sua proporção.
+  if (!maximum) return {width, height};
+  const scale = Math.min(1, maximum.width / width, maximum.height / height);
+  return {width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale))};
+}
+function videoConstraints(facing, maximum) {
+  const video = {facingMode: {ideal: facing}, frameRate: {ideal: 30, max: 30},
+    resizeMode: "none"};
+  if (maximum) {
+    video.width = {ideal: maximum.width};
+    video.height = {ideal: maximum.height};
+  }
+  return {audio: false, video};
 }
 function configFromForm() {
   const sensors = {};
@@ -181,9 +208,9 @@ async function setupCamera(generation) {
   if (!active("camera")) return;
   if (!navigator.mediaDevices?.getUserMedia) {unavailable("camera", "Câmera indisponível neste navegador"); return;}
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({audio: false, video: {
-      facingMode: {ideal: $("#camera-facing").value}, width: {ideal: Number($("#camera-width").value)},
-      frameRate: {ideal: 30, max: 30}}});
+    const requested = resolution($("#camera-publish-resolution").value);
+    const stream = await navigator.mediaDevices.getUserMedia(
+      videoConstraints($("#camera-facing").value, requested));
     if (!current(generation)) {stream.getTracks().forEach((track) => track.stop()); return;}
     state.stream = stream;
     const card = state.cards.camera;
@@ -195,15 +222,18 @@ async function setupCamera(generation) {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     const quality = Number($("#camera-quality").value);
-    const width = Number($("#camera-width").value);
+    const maximum = requested || {width: 1920, height: 1080};
+    const actual = stream.getVideoTracks()[0].getSettings();
+    log(`Câmera: fonte ${actual.width || video.videoWidth} × ${actual.height || video.videoHeight}; ` +
+      `modo ${actual.resizeMode || "não informado"}.`);
     let cameraStopped = false;
     async function capture() {
       if (!current(generation) || state.cameraBusy || !canSend("camera") || video.readyState < 2) return;
       state.cameraBusy = true;
       try {
-        const scale = Math.min(1, width / video.videoWidth, 720 / video.videoHeight);
-        canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-        canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+        const output = fitSize(video.videoWidth, video.videoHeight, maximum);
+        canvas.width = output.width;
+        canvas.height = output.height;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const timestamp = Date.now();
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
@@ -215,7 +245,8 @@ async function setupCamera(generation) {
         payload.set(new Uint8Array(jpeg), 8);
         state.socket.send(payload);
         markSent("camera");
-        reading("camera", `${canvas.width} × ${canvas.height} · ${(blob.size / 1024).toFixed(1)} KB / quadro`);
+        reading("camera", `Fonte ${video.videoWidth} × ${video.videoHeight} → ` +
+          `${canvas.width} × ${canvas.height} · ${(blob.size / 1024).toFixed(1)} KB / quadro`);
       } catch {
         if (current(generation)) {
           cameraStopped = true;
@@ -372,12 +403,209 @@ async function start(event) {
 function cameraOptions(card, saved) {
   const options = document.createElement("div"); options.className = "sensor-options";
   options.innerHTML = `<label>Câmera<select id="camera-facing"><option value="environment">Traseira</option><option value="user">Frontal</option></select></label>
-    <label>Largura máx.<select id="camera-width"><option value="640">640 px</option><option value="1280">1280 px</option></select></label>
+    <label>Resolução da publicação<select id="camera-publish-resolution"><option value="source">Automática (sem corte)</option><option value="640x480">640 × 480</option><option value="1280x720">1280 × 720</option><option value="1280x960">1280 × 960</option><option value="1920x1080">1920 × 1080</option></select></label>
     <label>Qualidade<select id="camera-quality"><option value="0.6">60%</option><option value="0.8">80%</option><option value="0.95">95%</option></select></label>`;
   card.querySelector(".sensor-options").after(options);
   $("#camera-facing").value = saved?.facing || "environment";
-  $("#camera-width").value = saved?.width || "640";
+  $("#camera-publish-resolution").value = saved?.publish_resolution ||
+    (saved?.width === "640" ? "640x480" : saved?.width === "1280" ? "1280x960" : "source");
   $("#camera-quality").value = saved?.quality || "0.8";
+}
+function calibrationStatus(message) {
+  $("#calibration-status").textContent = message;
+}
+function updateCalibrationControls() {
+  const idle = state.phase === "idle";
+  const open = !!state.calibrationStream;
+  const busy = state.calibrationBusy || state.calibrationOpening;
+  $("#calibration-open").disabled = !idle || open || busy;
+  $("#calibration-stop").disabled = !idle || (!open && !state.calibrationOpening);
+  $("#calibration-capture").disabled = !idle || !open || busy ||
+    state.calibrationPhotos.length >= 5;
+  $("#calibration-reset").disabled = !idle || busy || !state.calibrationPhotos.length;
+  $("#calibration-save").disabled = !idle || busy || state.calibrationPhotos.length < 3;
+  $("#calibration-facing").disabled = !idle || open || busy;
+  $("#calibration-resolution").disabled = !idle || open || busy;
+  $("#start").disabled = !idle || open || busy;
+  $("#calibration-count").textContent = `${state.calibrationPhotos.length}/5 fotos válidas`;
+}
+function closeCalibration() {
+  state.calibrationGeneration++;
+  state.calibrationStream?.getTracks().forEach((track) => track.stop());
+  state.calibrationStream = null;
+  state.calibrationOpening = false;
+  $("#calibration-video").srcObject = null;
+  $("#calibration-preview").hidden = true;
+  updateCalibrationControls();
+}
+function clearCalibrationPhotos() {
+  for (const photo of state.calibrationPhotos) URL.revokeObjectURL(photo.url);
+  state.calibrationPhotos = [];
+  $("#calibration-gallery").replaceChildren();
+  $("#calibration-result").hidden = true;
+  state.calibrationDownload = null;
+  calibrationStatus("Fotos descartadas.");
+  updateCalibrationControls();
+}
+function renderCalibrationPhotos() {
+  $("#calibration-gallery").replaceChildren();
+  state.calibrationPhotos.forEach((photo, index) => {
+    const card = document.createElement("div");
+    card.className = "calibration-photo";
+    const image = document.createElement("img");
+    image.src = photo.url;
+    image.alt = `Foto de calibração ${index + 1}`;
+    const details = document.createElement("span");
+    details.textContent = `${photo.width} × ${photo.height} · ${photo.corners} cantos`;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remover";
+    remove.addEventListener("click", () => {
+      if (state.calibrationBusy) return;
+      URL.revokeObjectURL(photo.url);
+      state.calibrationPhotos.splice(index, 1);
+      renderCalibrationPhotos();
+      calibrationStatus("Foto removida; capture outra posição do tabuleiro.");
+    });
+    card.append(image, details, remove);
+    $("#calibration-gallery").append(card);
+  });
+  updateCalibrationControls();
+}
+async function calibrationRequest(url, options = {}) {
+  const response = await fetch(url, {credentials: "same-origin", ...options,
+    headers: {"X-Gateway-Token": $("#token").value, ...(options.headers || {})}});
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(typeof error.detail === "string" ? error.detail :
+      `Erro ${response.status} ao processar a calibração.`);
+  }
+  return response;
+}
+async function openCalibration() {
+  if (state.phase !== "idle" || state.calibrationStream || state.calibrationOpening) return;
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    calibrationStatus("Abra o gateway por HTTPS para usar a câmera."); return;
+  }
+  state.calibrationOpening = true;
+  const generation = ++state.calibrationGeneration;
+  updateCalibrationControls();
+  calibrationStatus("Solicitando acesso à câmera…");
+  try {
+    const requested = resolution($("#calibration-resolution").value);
+    const stream = await navigator.mediaDevices.getUserMedia(
+      videoConstraints($("#calibration-facing").value, requested));
+    if (generation !== state.calibrationGeneration) {
+      stream.getTracks().forEach((track) => track.stop()); return;
+    }
+    state.calibrationStream = stream;
+    const video = $("#calibration-video");
+    video.srcObject = stream;
+    $("#calibration-preview").hidden = false;
+    await video.play();
+    if (generation !== state.calibrationGeneration) return;
+    const settings = stream.getVideoTracks()[0].getSettings();
+    const output = fitSize(video.videoWidth, video.videoHeight, requested);
+    $("#calibration-source").textContent = `Solicitado até ${requested.width} × ${requested.height}; ` +
+      `fonte real ${video.videoWidth} × ${video.videoHeight}; fotos ${output.width} × ${output.height}. ` +
+      `Modo da câmera: ${settings.resizeMode || "não informado"}.`;
+    calibrationStatus("Câmera pronta. Varie a posição e a inclinação do tabuleiro entre as fotos.");
+    stream.getVideoTracks()[0].addEventListener("ended", () => {
+      if (generation === state.calibrationGeneration) {
+        closeCalibration();
+        calibrationStatus("A câmera foi desconectada.");
+      }
+    });
+  } catch {
+    if (generation === state.calibrationGeneration) {
+      closeCalibration();
+      calibrationStatus("Não foi possível abrir a câmera nesta resolução.");
+    }
+  } finally {
+    if (generation === state.calibrationGeneration) {
+      state.calibrationOpening = false;
+      updateCalibrationControls();
+    }
+  }
+}
+async function captureCalibrationPhoto() {
+  if (!state.calibrationStream || state.calibrationBusy || state.calibrationPhotos.length >= 5) return;
+  const generation = state.calibrationGeneration;
+  const video = $("#calibration-video");
+  if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+    calibrationStatus("Aguarde a imagem da câmera aparecer."); return;
+  }
+  state.calibrationBusy = true;
+  updateCalibrationControls();
+  calibrationStatus("Verificando os cantos ChArUco da foto…");
+  try {
+    const maximum = resolution($("#calibration-resolution").value);
+    const output = fitSize(video.videoWidth, video.videoHeight, maximum);
+    const canvas = document.createElement("canvas");
+    canvas.width = output.width;
+    canvas.height = output.height;
+    canvas.getContext("2d").drawImage(video, 0, 0, output.width, output.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+    if (!blob || blob.size > 6 * 1024 * 1024) {
+      throw new Error("A foto ultrapassou 6 MiB; escolha uma resolução menor.");
+    }
+    const data = new FormData();
+    data.append("photo", blob, "calibration.jpg");
+    const response = await calibrationRequest("/api/calibration/inspect", {method: "POST", body: data});
+    const inspection = await response.json();
+    if (generation !== state.calibrationGeneration) return;
+    if (state.calibrationPhotos.length &&
+        (state.calibrationPhotos[0].width !== inspection.width ||
+         state.calibrationPhotos[0].height !== inspection.height)) {
+      throw new Error("A resolução mudou. Descarte as fotos e recomece com a mesma câmera.");
+    }
+    state.calibrationPhotos.push({blob, url: URL.createObjectURL(blob),
+      width: inspection.width, height: inspection.height, corners: inspection.corners});
+    renderCalibrationPhotos();
+    calibrationStatus(`${inspection.corners} cantos detectados. ` +
+      (state.calibrationPhotos.length >= 3 ? "Já pode calibrar; cinco fotos melhoram o resultado." :
+        "Capture de outra posição; são necessárias ao menos três fotos."));
+  } catch (error) {calibrationStatus(error.message);}
+  finally {state.calibrationBusy = false; updateCalibrationControls();}
+}
+async function saveCalibration() {
+  if (state.calibrationBusy || state.calibrationPhotos.length < 3) return;
+  const deviceId = $("#device-id").value.trim();
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(deviceId)) {
+    calibrationStatus("Informe um nome válido para o celular na seção Conexão."); return;
+  }
+  state.calibrationBusy = true;
+  updateCalibrationControls();
+  calibrationStatus("Calculando intrínsecos; aguarde…");
+  try {
+    const data = new FormData();
+    data.append("device_id", deviceId);
+    data.append("include_rt", String($("#calibration-include-rt").checked));
+    data.append("replace", String($("#calibration-replace").checked));
+    state.calibrationPhotos.forEach((photo, index) => data.append("photos", photo.blob, `photo-${index}.jpg`));
+    const response = await calibrationRequest("/api/calibration", {method: "POST", body: data});
+    const result = await response.json();
+    state.calibrationDownload = {url: result.download_url, filename: result.filename};
+    $("#calibration-result-text").textContent = `${result.filename} salvo em ${result.saved_at}. ` +
+      `${result.views} fotos, ${result.width} × ${result.height}, erro RMS ` +
+      `${result.rms.toFixed(2)} px${result.has_rt ? ", rt relativo ao tabuleiro da primeira foto" : ""}.`;
+    $("#calibration-result").hidden = false;
+    calibrationStatus("Calibração concluída.");
+    log(`Calibração salva: ${result.filename} (RMS ${result.rms.toFixed(2)} px).`, "success");
+  } catch (error) {calibrationStatus(error.message);}
+  finally {state.calibrationBusy = false; updateCalibrationControls();}
+}
+async function downloadCalibration() {
+  if (!state.calibrationDownload) return;
+  try {
+    const response = await calibrationRequest(state.calibrationDownload.url);
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = state.calibrationDownload.filename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  } catch (error) {calibrationStatus(error.message);}
 }
 async function init() {
   try {
@@ -387,13 +615,17 @@ async function init() {
     const saved = readSettings();
     $("#exchange").value = saved.exchange || "is";
     $("#device-id").value = saved.device_id || "phone";
-    $("#broker").required = !info.broker_configured;
+    $("#broker").required = false;
     if (info.broker_configured) {
       $("#broker").placeholder = "Usar broker configurado no servidor";
       $("#broker-help").textContent = "Deixe vazio para usar a configuração do servidor, ou informe outro broker.";
+    } else {
+      $("#broker").value = info.default_broker_uri;
     }
     $("#token-field").hidden = !info.token_required;
     $("#token").required = info.token_required;
+    $("#calibration-facing").value = saved.calibration?.facing || "environment";
+    $("#calibration-resolution").value = saved.calibration?.resolution || "1920x1440";
     for (const [name, sensor] of Object.entries(info.sensors)) {
       const card = $("#sensor-template").content.firstElementChild.cloneNode(true);
       state.cards[name] = card;
@@ -416,17 +648,35 @@ async function init() {
     $("#gateway-form").addEventListener("change", () => {updateSelection(); persistSettings();});
     $("#gateway-form").addEventListener("submit", start);
     $("#stop").addEventListener("click", () => stop());
+    $("#calibration-open").addEventListener("click", openCalibration);
+    $("#calibration-stop").addEventListener("click", () => {closeCalibration(); calibrationStatus("Câmera fechada; fotos mantidas.");});
+    $("#calibration-capture").addEventListener("click", captureCalibrationPhoto);
+    $("#calibration-reset").addEventListener("click", clearCalibrationPhotos);
+    $("#calibration-save").addEventListener("click", saveCalibration);
+    $("#calibration-download").addEventListener("click", downloadCalibration);
+    for (const select of [$("#calibration-facing"), $("#calibration-resolution")]) {
+      select.addEventListener("change", () => {clearCalibrationPhotos(); persistSettings();});
+    }
+    updateCalibrationControls();
     if (!window.isSecureContext) notice("Este endereço usa HTTP. Para acessar os sensores pelo celular, abra a versão HTTPS do gateway.");
   } catch {notice("Não foi possível carregar o gateway. Recarregue a página e confira o servidor.");}
 }
 $("#clear-log").addEventListener("click", () => {$("#log").replaceChildren();});
 document.addEventListener("visibilitychange", () => {
+  if (document.hidden && (state.calibrationStream || state.calibrationOpening)) {
+    closeCalibration();
+    calibrationStatus("Câmera fechada ao sair da página; fotos mantidas.");
+  }
   if (document.hidden && state.phase !== "idle") {
     stop("Sessão parada ao sair da página");
     notice("A coleta foi parada porque a página ficou em segundo plano. Inicie novamente para continuar.");
   }
 });
-window.addEventListener("pagehide", () => {if (state.phase !== "idle") stop();});
+window.addEventListener("pagehide", () => {
+  if (state.phase !== "idle") stop();
+  closeCalibration();
+  for (const photo of state.calibrationPhotos) URL.revokeObjectURL(photo.url);
+});
 setInterval(() => {
   if (state.phase !== "streaming") return;
   const seconds = Math.floor((Date.now() - state.startedAt) / 1000);

@@ -31,7 +31,7 @@
       <section class="connection-section">
         <div class="section-heading"><div><span class="step">01</span><h2>Conexão</h2></div><span class="hint">Celular e gateway na mesma rede</span></div>
         <div class="connection-grid">
-          <label class="broker-field">Endereço do broker<input id="broker" type="text" placeholder="amqp://usuario:senha@192.168.1.10:5672" autocomplete="off" spellcheck="false"><small id="broker-help">RabbitMQ · AMQP ou AMQPS. A senha não é salva neste navegador.</small></label>
+          <label class="broker-field">Endereço do broker<input id="broker" type="text" placeholder="amqp://guest:guest@10.10.50.176:30000" autocomplete="off" spellcheck="false"><small id="broker-help">Padrão do laboratório. É possível alterar; a senha não é salva neste navegador.</small></label>
           <label>Exchange<input id="exchange" value="is" required maxlength="128" pattern="[A-Za-z0-9_.-]+" spellcheck="false"></label>
           <label>Nome do celular<input id="device-id" value="phone" required maxlength="64" pattern="[A-Za-z0-9_-]+" spellcheck="false"></label>
           <label id="token-field" hidden>Token de acesso<input id="token" type="password" autocomplete="off"></label>
@@ -46,8 +46,29 @@
         <div class="actions"><button id="stop" type="button" class="secondary" disabled>Parar</button><button id="start" type="submit" disabled><span class="play">▶</span> Iniciar publicação</button></div>
       </section>
     </form>
+    <section class="calibration-section">
+      <div class="section-heading"><div><span class="step">03</span><h2>Calibração da câmera</h2></div><span class="hint">ChArUco legacy · 3 a 5 fotos</span></div>
+      <p class="calibration-intro">Use o tabuleiro 8 × 6, quadrados de 95 mm e marcadores de 71 mm, dicionário 4×4/100. Tire fotos de ângulos e distâncias diferentes, mantendo a mesma câmera e resolução. <a href="/api/calibration/board" download="charuco-legacy-8x6.png">Baixar tabuleiro</a></p>
+      <div class="calibration-controls">
+        <label>Câmera para calibração<select id="calibration-facing"><option value="environment">Traseira</option><option value="user">Frontal</option></select></label>
+        <label>Resolução máxima das fotos<select id="calibration-resolution"><option value="1280x720">1280 × 720 (16:9)</option><option value="1280x960">1280 × 960 (4:3)</option><option value="1920x1080">1920 × 1080 (16:9)</option><option value="1920x1440">1920 × 1440 (4:3)</option><option value="2560x1920">2560 × 1920 (4:3)</option></select></label>
+        <div class="calibration-actions"><button id="calibration-open" type="button" class="secondary">Abrir câmera</button><button id="calibration-stop" type="button" class="secondary" disabled>Fechar câmera</button></div>
+      </div>
+      <div id="calibration-preview" class="calibration-preview" hidden><video id="calibration-video" muted playsinline autoplay></video></div>
+      <p id="calibration-source" class="calibration-source">A resolução real da câmera aparecerá aqui.</p>
+      <div class="calibration-progress"><span id="calibration-count">0/5 fotos válidas</span><span id="calibration-status" role="status">Abra a câmera para começar.</span></div>
+      <div class="calibration-actions"><button id="calibration-capture" type="button" disabled>Capturar foto</button><button id="calibration-reset" type="button" class="secondary" disabled>Descartar fotos</button></div>
+      <div id="calibration-gallery" class="calibration-gallery" aria-label="Fotos de calibração"></div>
+      <div class="calibration-final">
+        <label class="checkbox-line"><input id="calibration-include-rt" type="checkbox" checked> Incluir <code>rt</code> relativo ao tabuleiro da primeira foto</label>
+        <label class="checkbox-line"><input id="calibration-replace" type="checkbox"> Substituir arquivo existente com o mesmo nome</label>
+        <button id="calibration-save" type="button" disabled>Calibrar e salvar NPZ</button>
+      </div>
+      <div id="calibration-result" class="calibration-result" hidden><p id="calibration-result-text"></p><button id="calibration-download" type="button" class="secondary">Baixar NPZ no celular</button></div>
+      <p class="calibration-note">O arquivo será salvo no computador que executa o gateway como <code>calibrations/&lt;nome-do-celular&gt;.npz</code>. A resolução real e a lente usadas na calibração devem corresponder às imagens analisadas depois.</p>
+    </section>
     <section class="monitor-section">
-      <div class="section-heading"><div><span class="step">03</span><h2>Atividade</h2></div><button id="clear-log" type="button" class="text-button">Limpar registro</button></div>
+      <div class="section-heading"><div><span class="step">04</span><h2>Atividade</h2></div><button id="clear-log" type="button" class="text-button">Limpar registro</button></div>
       <div id="log" class="event-log" role="log" aria-live="polite"><p class="log-empty">As conexões e leituras aparecerão aqui.</p></div>
     </section>
     <footer><span>PHONE GATEWAY / LABSEA</span><span>Coleta somente durante a sessão ativa.</span></footer>
