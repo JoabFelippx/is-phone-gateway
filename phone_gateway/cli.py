@@ -2,6 +2,8 @@ import argparse
 
 import uvicorn
 
+from phone_gateway.converters import MAX_FRAME_BYTES
+
 
 def main():
     parser = argparse.ArgumentParser(description="Gateway de sensores do celular para AMQP")
@@ -18,7 +20,7 @@ def main():
         port=args.port,
         ssl_certfile=args.cert,
         ssl_keyfile=args.key,
-        ws_max_size=2 * 1024 * 1024 + 8,
+        ws_max_size=MAX_FRAME_BYTES + 8,
         ws_max_queue=8,
     )
 

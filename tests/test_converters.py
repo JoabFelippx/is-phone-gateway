@@ -98,6 +98,16 @@ def test_jpeg_is_binary_image_with_truthful_receive_timestamp():
         convert_frame(b"not a jpeg", "phone", 1)
 
 
+def test_frame_limit_allows_calibration_resolution():
+    frame = BytesIO()
+    PillowImage.new("RGB", (2560, 1920), (35, 180, 120)).save(frame, "JPEG")
+    assert convert_frame(frame.getvalue(), "phone", 1).data == frame.getvalue()
+    frame = BytesIO()
+    PillowImage.new("RGB", (2561, 1920), (35, 180, 120)).save(frame, "JPEG")
+    with pytest.raises(ValueError, match="2560 × 1920"):
+        convert_frame(frame.getvalue(), "phone", 1)
+
+
 @pytest.mark.parametrize(
     "uri", ["http://broker", "amqp://", "amqp://broker:99999", "amqp://broker?vhost=x"]
 )

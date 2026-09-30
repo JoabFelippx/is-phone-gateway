@@ -11,8 +11,8 @@ from PIL import UnidentifiedImageError
 
 from phone_gateway.models import Sample
 
-MAX_FRAME_BYTES = 2 * 1024 * 1024
-MAX_FRAME_PIXELS = 1920 * 1080
+MAX_FRAME_BYTES = 6 * 1024 * 1024
+MAX_FRAME_PIXELS = 2560 * 1920
 
 
 def number(data, key, *, optional=False):
@@ -92,11 +92,11 @@ def convert_sample(sample: Sample):
 
 def convert_frame(jpeg: bytes, device_id: str, sequence: int):
     if not jpeg or len(jpeg) > MAX_FRAME_BYTES:
-        raise ValueError("Quadro vazio ou maior que 2 MiB.")
+        raise ValueError("Quadro vazio ou maior que 6 MiB.")
     try:
         with PillowImage.open(BytesIO(jpeg)) as image:
             if image.format != "JPEG" or image.width * image.height > MAX_FRAME_PIXELS:
-                raise ValueError("Esperado JPEG com até 1920 × 1080 pixels.")
+                raise ValueError("Esperado JPEG com até 2560 × 1920 pixels.")
             image.verify()
     except (UnidentifiedImageError, OSError, PillowImage.DecompressionBombError) as error:
         raise ValueError("Imagem JPEG inválida.") from error

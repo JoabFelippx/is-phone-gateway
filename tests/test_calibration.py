@@ -78,9 +78,10 @@ def test_calibration_api_saves_downloads_and_requires_explicit_replacement(tmp_p
             files=files,
         )
         assert response.status_code == 200, response.text
-        assert response.json()["filename"] == "my-phone.npz"
-        assert (tmp_path / "my-phone.npz").is_file()
-        downloaded = client.get("/api/calibration/my-phone/download", headers=headers)
+        assert response.json()["filename"] == "my-phone_1600x1200.npz"
+        assert response.json()["download_url"] == "/api/calibration/my-phone/1600x1200/download"
+        assert (tmp_path / "my-phone_1600x1200.npz").is_file()
+        downloaded = client.get(response.json()["download_url"], headers=headers)
         assert downloaded.status_code == 200
         with np.load(BytesIO(downloaded.content), allow_pickle=False) as saved:
             assert saved["K"].shape == (3, 3)
@@ -99,8 +100,32 @@ def test_calibration_api_saves_downloads_and_requires_explicit_replacement(tmp_p
             ).status_code
             == 200
         )
-        with np.load(tmp_path / "my-phone.npz", allow_pickle=False) as saved:
+        with np.load(tmp_path / "my-phone_1600x1200.npz", allow_pickle=False) as saved:
             assert "rt" not in saved
+        other_size = []
+        for index, photo in enumerate(photos[:3]):
+            frame = cv2.imdecode(np.frombuffer(photo, np.uint8), cv2.IMREAD_COLOR)
+            resized = cv2.resize(frame, (1280, 960))
+            other_size.append(
+                (
+                    "photos",
+                    (
+                        f"smaller-{index}.jpg",
+                        cv2.imencode(".jpg", resized)[1].tobytes(),
+                        "image/jpeg",
+                    ),
+                )
+            )
+        another = client.post(
+            "/api/calibration", headers=headers, data={"device_id": "my-phone"}, files=other_size
+        )
+        assert another.status_code == 200, another.text
+        assert another.json()["filename"] == "my-phone_1280x960.npz"
+        assert (tmp_path / "my-phone_1600x1200.npz").is_file()
+        assert (tmp_path / "my-phone_1280x960.npz").is_file()
+        assert (
+            client.get("/api/calibration/my-phone/bad/download", headers=headers).status_code == 422
+        )
 
 
 def test_calibration_rejects_invalid_board_mixed_sizes_and_access(tmp_path, monkeypatch):

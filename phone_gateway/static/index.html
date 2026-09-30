@@ -51,7 +51,7 @@
       <p class="calibration-intro">Use o tabuleiro 8 × 6, quadrados de 95 mm e marcadores de 71 mm, dicionário 4×4/100. Tire fotos de ângulos e distâncias diferentes, mantendo a mesma câmera e resolução. <a href="/api/calibration/board" download="charuco-legacy-8x6.png">Baixar tabuleiro</a></p>
       <div class="calibration-controls">
         <label>Câmera para calibração<select id="calibration-facing"><option value="environment">Traseira</option><option value="user">Frontal</option></select></label>
-        <label>Resolução máxima das fotos<select id="calibration-resolution"><option value="1280x720">1280 × 720 (16:9)</option><option value="1280x960">1280 × 960 (4:3)</option><option value="1920x1080">1920 × 1080 (16:9)</option><option value="1920x1440">1920 × 1440 (4:3)</option><option value="2560x1920">2560 × 1920 (4:3)</option></select></label>
+        <label>Resolução máxima das fotos<select id="calibration-resolution"><option value="640x480">640 × 480 (4:3)</option><option value="1280x720">1280 × 720 (16:9)</option><option value="1280x960">1280 × 960 (4:3)</option><option value="1920x1080">1920 × 1080 (16:9)</option><option value="1920x1440">1920 × 1440 (4:3)</option><option value="2560x1920">2560 × 1920 (4:3)</option></select></label>
         <div class="calibration-actions"><button id="calibration-open" type="button" class="secondary">Abrir câmera</button><button id="calibration-stop" type="button" class="secondary" disabled>Fechar câmera</button></div>
       </div>
       <div id="calibration-preview" class="calibration-preview" hidden><video id="calibration-video" muted playsinline autoplay></video></div>
@@ -65,7 +65,7 @@
         <button id="calibration-save" type="button" disabled>Calibrar e salvar NPZ</button>
       </div>
       <div id="calibration-result" class="calibration-result" hidden><p id="calibration-result-text"></p><button id="calibration-download" type="button" class="secondary">Baixar NPZ no celular</button></div>
-      <p class="calibration-note">O arquivo será salvo no computador que executa o gateway como <code>calibrations/&lt;nome-do-celular&gt;.npz</code>. A resolução real e a lente usadas na calibração devem corresponder às imagens analisadas depois.</p>
+      <p class="calibration-note">O arquivo será salvo no computador que executa o gateway como <code>calibrations/&lt;nome-do-celular&gt;_&lt;largura&gt;x&lt;altura&gt;.npz</code>. A resolução real e a lente usadas na calibração devem corresponder às imagens analisadas depois.</p>
     </section>
     <section class="monitor-section">
       <div class="section-heading"><div><span class="step">04</span><h2>Atividade</h2></div><button id="clear-log" type="button" class="text-button">Limpar registro</button></div>

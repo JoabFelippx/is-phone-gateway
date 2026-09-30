@@ -222,22 +222,34 @@ async function setupCamera(generation) {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     const quality = Number($("#camera-quality").value);
-    const maximum = requested || {width: 1920, height: 1080};
+    const maximum = requested || {width: 2560, height: 1920};
     const actual = stream.getVideoTracks()[0].getSettings();
     log(`Câmera: fonte ${actual.width || video.videoWidth} × ${actual.height || video.videoHeight}; ` +
       `modo ${actual.resizeMode || "não informado"}.`);
     let cameraStopped = false;
+    let resolutionWarningShown = false;
     async function capture() {
       if (!current(generation) || state.cameraBusy || !canSend("camera") || video.readyState < 2) return;
       state.cameraBusy = true;
       try {
         const output = fitSize(video.videoWidth, video.videoHeight, maximum);
+        if (requested && !resolutionWarningShown &&
+            (output.width !== requested.width || output.height !== requested.height)) {
+          resolutionWarningShown = true;
+          log(`A câmera entregou ${output.width} × ${output.height} em vez de ` +
+            `${requested.width} × ${requested.height}. Confira a resolução antes de usar os intrínsecos.`, "error");
+        }
         canvas.width = output.width;
         canvas.height = output.height;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const timestamp = Date.now();
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
         if (!blob || !current(generation) || !canSend("camera")) return;
+        if (blob.size > 6 * 1024 * 1024) {
+          cameraStopped = true;
+          unavailable("camera", "Frame maior que 6 MiB; reduza a qualidade ou resolução JPEG");
+          return;
+        }
         const jpeg = await blob.arrayBuffer();
         if (!current(generation) || !canSend("camera")) return;
         const payload = new Uint8Array(8 + jpeg.byteLength);
@@ -400,15 +412,29 @@ async function start(event) {
     log(error.message, "error");
   }
 }
-function cameraOptions(card, saved) {
+function addResolutionOption(select, value) {
+  const match = /^(\d{1,4})x(\d{1,4})$/.exec(value || "");
+  if (!match || Number(match[1]) < 1 || Number(match[1]) > 2560 ||
+      Number(match[2]) < 1 || Number(match[2]) > 1920) return false;
+  if (!Array.from(select.options).some((option) => option.value === value)) {
+    select.add(new Option(`${match[1]} × ${match[2]} (calibração real)`, value));
+  }
+  return true;
+}
+function cameraOptions(card, saved, calibration) {
   const options = document.createElement("div"); options.className = "sensor-options";
   options.innerHTML = `<label>Câmera<select id="camera-facing"><option value="environment">Traseira</option><option value="user">Frontal</option></select></label>
-    <label>Resolução da publicação<select id="camera-publish-resolution"><option value="source">Automática (sem corte)</option><option value="640x480">640 × 480</option><option value="1280x720">1280 × 720</option><option value="1280x960">1280 × 960</option><option value="1920x1080">1920 × 1080</option></select></label>
+    <label>Resolução máxima da publicação<select id="camera-publish-resolution"><option value="source">Automática (sem corte)</option>${$("#calibration-resolution").innerHTML}</select></label>
     <label>Qualidade<select id="camera-quality"><option value="0.6">60%</option><option value="0.8">80%</option><option value="0.95">95%</option></select></label>`;
   card.querySelector(".sensor-options").after(options);
-  $("#camera-facing").value = saved?.facing || "environment";
-  $("#camera-publish-resolution").value = saved?.publish_resolution ||
-    (saved?.width === "640" ? "640x480" : saved?.width === "1280" ? "1280x960" : "source");
+  $("#camera-facing").value = saved?.facing || calibration?.facing || "environment";
+  const publishResolution = saved?.publish_resolution ||
+    (saved?.width === "640" ? "640x480" : saved?.width === "1280" ? "1280x960" :
+      calibration?.resolution || $("#calibration-resolution").value);
+  const publishSelect = $("#camera-publish-resolution");
+  if (publishResolution === "source" || addResolutionOption(publishSelect, publishResolution)) {
+    publishSelect.value = publishResolution;
+  }
   $("#camera-quality").value = saved?.quality || "0.8";
 }
 function calibrationStatus(message) {
@@ -617,11 +643,16 @@ async function saveCalibration() {
     const response = await calibrationRequest("/api/calibration", {method: "POST", body: data});
     const result = await response.json();
     state.calibrationDownload = {url: result.download_url, filename: result.filename};
+    const publishResolution = `${result.width}x${result.height}`;
+    const publishSelect = $("#camera-publish-resolution");
+    if (addResolutionOption(publishSelect, publishResolution)) publishSelect.value = publishResolution;
+    $("#camera-facing").value = $("#calibration-facing").value;
+    persistSettings();
     $("#calibration-result-text").textContent = `${result.filename} salvo em ${result.saved_at}. ` +
       `${result.views} fotos, ${result.width} × ${result.height}, erro RMS ` +
       `${result.rms.toFixed(2)} px${result.has_rt ? ", rt relativo ao tabuleiro da primeira foto" : ""}.`;
     $("#calibration-result").hidden = false;
-    calibrationStatus("Calibração concluída.");
+    calibrationStatus("Calibração concluída. A publicação foi ajustada para a mesma câmera e resolução real.");
     log(`Calibração salva: ${result.filename} (RMS ${result.rms.toFixed(2)} px).`, "success");
   } catch (error) {calibrationStatus(error.message);}
   finally {state.calibrationBusy = false; updateCalibrationControls();}
@@ -672,7 +703,7 @@ async function init() {
       card.querySelector(".rate").max = sensor.max_rate;
       if (name === "camera") card.querySelector(".rate-label").textContent = "Taxa de frames (FPS)";
       $("#sensors").append(card);
-      if (name === "camera") cameraOptions(card, saved.camera);
+      if (name === "camera") cameraOptions(card, saved.camera, saved.calibration);
     }
     updateSelection();
     $("#start").disabled = false;
@@ -686,7 +717,12 @@ async function init() {
     $("#calibration-save").addEventListener("click", saveCalibration);
     $("#calibration-download").addEventListener("click", downloadCalibration);
     for (const select of [$("#calibration-facing"), $("#calibration-resolution")]) {
-      select.addEventListener("change", () => {clearCalibrationPhotos(); persistSettings();});
+      select.addEventListener("change", () => {
+        clearCalibrationPhotos();
+        $("#camera-facing").value = $("#calibration-facing").value;
+        $("#camera-publish-resolution").value = $("#calibration-resolution").value;
+        persistSettings();
+      });
     }
     updateCalibrationControls();
     if (!window.isSecureContext) {

@@ -63,9 +63,13 @@ def create_app(publisher_factory=BrokerPublisher, calibration_dir=None):
         if expected and not secrets.compare_digest(supplied.encode(), expected.encode()):
             raise HTTPException(401, "Token de acesso inválido.")
 
-    def calibration_path(device_id):
+    def calibration_path(device_id, resolution=None):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", device_id):
             raise HTTPException(422, "Nome do celular inválido.")
+        if resolution is not None:
+            if not re.fullmatch(r"[1-9][0-9]{0,4}x[1-9][0-9]{0,4}", resolution):
+                raise HTTPException(422, "Resolução da calibração inválida.")
+            return storage / f"{device_id}_{resolution}.npz"
         return storage / f"{device_id}.npz"
 
     async def read_photo(photo: UploadFile):
@@ -119,20 +123,23 @@ def create_app(publisher_factory=BrokerPublisher, calibration_dir=None):
         replace: bool = Form(False),
     ):
         check_calibration_access(request)
-        target = calibration_path(device_id)
+        calibration_path(device_id)
         if not MIN_PHOTOS <= len(photos) <= MAX_PHOTOS:
             raise HTTPException(422, "Envie de 3 a 5 fotos válidas.")
-        if target.exists() and not replace:
-            raise HTTPException(409, "Já existe uma calibração para este celular.")
         raw_photos = [await read_photo(photo) for photo in photos]
         try:
             result = await asyncio.to_thread(calibrate, raw_photos, include_rt=include_rt)
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
+        width, height = int(result["w"]), int(result["h"])
+        resolution = f"{width}x{height}"
+        target = calibration_path(device_id, resolution)
+        if target.exists() and not replace:
+            raise HTTPException(409, "Já existe uma calibração para este celular e resolução.")
         storage.mkdir(parents=True, exist_ok=True)
         with save_lock:
             if target.exists() and not replace:
-                raise HTTPException(409, "Já existe uma calibração para este celular.")
+                raise HTTPException(409, "Já existe uma calibração para este celular e resolução.")
             temporary_path = None
             try:
                 with tempfile.NamedTemporaryFile(
@@ -149,9 +156,9 @@ def create_app(publisher_factory=BrokerPublisher, calibration_dir=None):
         return {
             "filename": target.name,
             "saved_at": str(target.resolve()),
-            "download_url": f"/api/calibration/{device_id}/download",
-            "width": int(result["w"]),
-            "height": int(result["h"]),
+            "download_url": f"/api/calibration/{device_id}/{resolution}/download",
+            "width": width,
+            "height": height,
             "views": int(result["views"]),
             "rms": float(result["rms"]),
             "has_rt": "rt" in result,
@@ -161,6 +168,14 @@ def create_app(publisher_factory=BrokerPublisher, calibration_dir=None):
     async def download_calibration(request: Request, device_id: str):
         check_calibration_access(request)
         target = calibration_path(device_id)
+        if not target.is_file():
+            raise HTTPException(404, "Calibração não encontrada.")
+        return FileResponse(target, filename=target.name, media_type="application/octet-stream")
+
+    @app.get("/api/calibration/{device_id}/{resolution}/download")
+    async def download_calibration_resolution(request: Request, device_id: str, resolution: str):
+        check_calibration_access(request)
+        target = calibration_path(device_id, resolution)
         if not target.is_file():
             raise HTTPException(404, "Calibração não encontrada.")
         return FileResponse(target, filename=target.name, media_type="application/octet-stream")

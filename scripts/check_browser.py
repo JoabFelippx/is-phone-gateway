@@ -103,6 +103,13 @@ def main():
             page.goto(address)
             page.wait_for_function("document.querySelectorAll('.sensor-card').length === 6")
             assert page.locator("#broker").input_value() == "amqp://guest:guest@10.10.50.176:30000"
+            assert page.locator("#calibration-resolution option").evaluate_all(
+                "options => options.map(option => option.value)"
+            ) == page.locator("#camera-publish-resolution option").evaluate_all(
+                "options => options.map(option => option.value).filter(value => value !== 'source')"
+            )
+            page.locator("#calibration-resolution").select_option("1920x1440")
+            assert page.locator("#camera-publish-resolution").input_value() == "1920x1440"
             page.locator("#broker").fill("amqp://test:do-not-save@broker:5672")
             page.locator(".sensor-card").first.locator(".rate").fill("30")
             page.locator(".enabled").evaluate_all(
