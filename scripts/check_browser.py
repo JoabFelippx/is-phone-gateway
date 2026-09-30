@@ -68,6 +68,7 @@ def main():
             packets = []
             counts = {}
             camera_sizes = []
+            padded_frames = []
 
             def intercept(ws):
                 def receive(payload):
@@ -75,6 +76,11 @@ def main():
                         assert payload[8:10] == b"\xff\xd8"
                         with PillowImage.open(BytesIO(payload[8:])) as image:
                             camera_sizes.append(image.size)
+                            if image.size in {(1280, 720), (405, 720)}:
+                                rgb = image.convert("RGB")
+                                padded_frames.append(
+                                    (image.size, rgb.getpixel((image.width // 2, 5)))
+                                )
                         sensor = "camera"
                     else:
                         packet = json.loads(payload)
@@ -175,7 +181,20 @@ def main():
                 "document.querySelectorAll('.sensor-count')[0].textContent !== '0 msgs'"
             )
             page.locator("#stop").click()
-            assert (960, 720) in camera_sizes, camera_sizes
+            assert (1280, 720) in camera_sizes, camera_sizes
+            assert any(size == (1280, 720) for size, _ in padded_frames)
+            page.evaluate("""() => {
+                const select = document.querySelector('#camera-publish-resolution');
+                select.add(new Option('405 × 720', '405x720'));
+            }""")
+            page.locator("#camera-publish-resolution").select_option("405x720")
+            page.locator("#start").click()
+            page.wait_for_function(
+                "document.querySelectorAll('.sensor-count')[0].textContent !== '0 msgs'"
+            )
+            page.locator("#stop").click()
+            assert (405, 720) in camera_sizes, camera_sizes
+            assert any(size == (405, 720) and max(pixel) < 10 for size, pixel in padded_frames)
             page.locator("#calibration-resolution").select_option("1280x960")
             page.locator("#calibration-open").click()
             page.wait_for_function("document.querySelector('#calibration-video').videoWidth > 0")

@@ -89,12 +89,28 @@ function fitSize(width, height, maximum) {
   return {width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale))};
 }
+function drawFrame(video, canvas, requested) {
+  const output = requested || fitSize(video.videoWidth, video.videoHeight,
+    {width: 2560, height: 1920});
+  const scale = Math.min(output.width / video.videoWidth, output.height / video.videoHeight);
+  const imageWidth = Math.max(1, Math.min(output.width, Math.round(video.videoWidth * scale)));
+  const imageHeight = Math.max(1, Math.min(output.height, Math.round(video.videoHeight * scale)));
+  canvas.width = output.width;
+  canvas.height = output.height;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(video, Math.floor((canvas.width - imageWidth) / 2),
+    Math.floor((canvas.height - imageHeight) / 2), imageWidth, imageHeight);
+  return {width: output.width, height: output.height, imageWidth, imageHeight};
+}
 function videoConstraints(facing, maximum) {
   const video = {facingMode: {ideal: facing}, frameRate: {ideal: 30, max: 30},
     resizeMode: "none"};
   if (maximum) {
     video.width = {ideal: maximum.width};
     video.height = {ideal: maximum.height};
+    video.aspectRatio = {ideal: maximum.width / maximum.height};
   }
   return {audio: false, video};
 }
@@ -220,28 +236,25 @@ async function setupCamera(generation) {
     await video.play();
     if (!current(generation)) return;
     const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
     const quality = Number($("#camera-quality").value);
-    const maximum = requested || {width: 2560, height: 1920};
     const actual = stream.getVideoTracks()[0].getSettings();
     log(`Câmera: fonte ${actual.width || video.videoWidth} × ${actual.height || video.videoHeight}; ` +
       `modo ${actual.resizeMode || "não informado"}.`);
     let cameraStopped = false;
-    let resolutionWarningShown = false;
+    let paddingWarningShown = false;
     async function capture() {
-      if (!current(generation) || state.cameraBusy || !canSend("camera") || video.readyState < 2) return;
+      if (!current(generation) || state.cameraBusy || !canSend("camera") ||
+          video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
       state.cameraBusy = true;
       try {
-        const output = fitSize(video.videoWidth, video.videoHeight, maximum);
-        if (requested && !resolutionWarningShown &&
-            (output.width !== requested.width || output.height !== requested.height)) {
-          resolutionWarningShown = true;
-          log(`A câmera entregou ${output.width} × ${output.height} em vez de ` +
-            `${requested.width} × ${requested.height}. Confira a resolução antes de usar os intrínsecos.`, "error");
+        const output = drawFrame(video, canvas, requested);
+        const padded = output.imageWidth !== output.width || output.imageHeight !== output.height;
+        if (requested && padded && !paddingWarningShown) {
+          paddingWarningShown = true;
+          log(`A fonte ${video.videoWidth} × ${video.videoHeight} tem outra proporção. ` +
+            `O quadro publicado é ${output.width} × ${output.height}, com barras pretas para ` +
+            `preservar a imagem. Não use os intrínsecos se o campo de visão mudou.`, "error");
         }
-        canvas.width = output.width;
-        canvas.height = output.height;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const timestamp = Date.now();
         const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
         if (!blob || !current(generation) || !canSend("camera")) return;
@@ -258,7 +271,8 @@ async function setupCamera(generation) {
         state.socket.send(payload);
         markSent("camera");
         reading("camera", `Fonte ${video.videoWidth} × ${video.videoHeight} → ` +
-          `${canvas.width} × ${canvas.height} · ${(blob.size / 1024).toFixed(1)} KB / quadro`);
+          `${canvas.width} × ${canvas.height}${padded ? " (com barras)" : ""} · ` +
+          `${(blob.size / 1024).toFixed(1)} KB / quadro`);
       } catch {
         if (current(generation)) {
           cameraStopped = true;
@@ -424,7 +438,7 @@ function addResolutionOption(select, value) {
 function cameraOptions(card, saved, calibration) {
   const options = document.createElement("div"); options.className = "sensor-options";
   options.innerHTML = `<label>Câmera<select id="camera-facing"><option value="environment">Traseira</option><option value="user">Frontal</option></select></label>
-    <label>Resolução máxima da publicação<select id="camera-publish-resolution"><option value="source">Automática (sem corte)</option>${$("#calibration-resolution").innerHTML}</select></label>
+    <label>Resolução da publicação<select id="camera-publish-resolution"><option value="source">Automática (sem corte)</option>${$("#calibration-resolution").innerHTML}</select></label>
     <label>Qualidade<select id="camera-quality"><option value="0.6">60%</option><option value="0.8">80%</option><option value="0.95">95%</option></select></label>`;
   card.querySelector(".sensor-options").after(options);
   $("#camera-facing").value = saved?.facing || calibration?.facing || "environment";
